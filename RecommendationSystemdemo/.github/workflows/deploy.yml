@@ -3,12 +3,12 @@ name: Deploy to AWS EC2
 on:
   push:
     branches: [ main ]
+  workflow_dispatch:
 
 env:
-  AWS_REGION: us-east-1
-  ECR_REPOSITORY: my-spring-app
-  APPLICATION_NAME: my-spring-app
-  DEPLOYMENT_GROUP: production
+  AWS_REGION: us-west-1                          # ← Your AWS region
+  ECR_REPOSITORY: recommendation-system                  # ← Your ECR repo name
+  APPLICATION_NAME: RecommendationSystemdemo                # ← Your CodeDeploy app name
 
 jobs:
   build-and-deploy:
@@ -59,12 +59,12 @@ jobs:
 
       - name: Upload to S3
         run: |
-          aws s3 cp deployment.zip s3://my-deployment-bucket/my-spring-app/${{ github.sha }}.zip
+          aws s3 cp deployment.zip s3://${{ env.S3_BUCKET }}/${{ env.ECR_REPOSITORY }}/${{ github.sha }}.zip
 
       - name: Create CodeDeploy deployment
         run: |
           aws deploy create-deployment \
             --application-name ${{ env.APPLICATION_NAME }} \
             --deployment-group-name ${{ env.DEPLOYMENT_GROUP }} \
-            --s3-location bucket=my-deployment-bucket,key=my-spring-app/${{ github.sha }}.zip,bundleType=zip \
+            --s3-location bucket=${{ env.S3_BUCKET }},key=${{ env.ECR_REPOSITORY }}/${{ github.sha }}.zip,bundleType=zip \
             --description "Deployment of commit ${{ github.sha }}"
