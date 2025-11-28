@@ -6,7 +6,7 @@ ECR_REGISTRY=$2
 REGION="us-east-1"
 
 echo "🚀 Starting deployment..."
-echo "Image: $ECR_REGISTRY/my-spring-app:$IMAGE_TAG"
+echo "Image: $ECR_REGISTRY/recommendation-system:$IMAGE_TAG"
 
 # Login to ECR
 echo "🔐 Logging into ECR..."
@@ -19,7 +19,7 @@ docker rm spring-app 2>/dev/null || true
 
 # Pull new image
 echo "📥 Pulling new image..."
-docker pull $ECR_REGISTRY/my-spring-app:$IMAGE_TAG
+docker pull $ECR_REGISTRY/recommendation-system:$IMAGE_TAG
 
 # Run new container
 echo "▶️  Starting new container..."
@@ -28,7 +28,7 @@ docker run -d \
   -p 80:8080 \
   --restart unless-stopped \
   -e SPRING_PROFILES_ACTIVE=prod \
-  $ECR_REGISTRY/my-spring-app:$IMAGE_TAG
+  $ECR_REGISTRY/recommendation-system:$IMAGE_TAG
 
 # Wait for startup
 echo "⏳ Waiting for application to start..."
