@@ -1,16 +1,16 @@
-name: Build and Deploy to AWS
+name: Deploy Recommendation System to EC2
 
 on:
   push:
     branches: [ main ]
+  workflow_dispatch:
 
 env:
-  AWS_REGION: us-west-1
+  AWS_REGION: us-east-1
   ECR_REPOSITORY: recommendation-system
-  S3_BUCKET: recommendation-system-pipeline-artifacts
 
 jobs:
-  build-and-deploy:
+  deploy:
     runs-on: ubuntu-latest
 
     steps:
@@ -38,35 +38,55 @@ jobs:
         id: login-ecr
         uses: aws-actions/amazon-ecr-login@v2
 
-      - name: Build, tag, and push image to Amazon ECR
+      - name: Build, tag, and push image to ECR
         id: build-image
         env:
           ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
           IMAGE_TAG: ${{ github.sha }}
         run: |
+          echo "Building Docker image..."
           docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG .
+          
+          echo "Pushing to ECR..."
           docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
+          
+          echo "Tagging as latest..."
           docker tag $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG $ECR_REGISTRY/$ECR_REPOSITORY:latest
           docker push $ECR_REGISTRY/$ECR_REPOSITORY:latest
+          
           echo "image=$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG" >> $GITHUB_OUTPUT
+          echo "registry=$ECR_REGISTRY" >> $GITHUB_OUTPUT
 
-      - name: Create deployment package
+      - name: Deploy to EC2
+        env:
+          PRIVATE_KEY: ${{ secrets.EC2_SSH_KEY }}
+          HOST: ${{ secrets.EC2_HOST }}
+          USER: ec2-user
+          IMAGE_TAG: ${{ github.sha }}
+          ECR_REGISTRY: ${{ steps.build-image.outputs.registry }}
         run: |
-          mkdir -p deployment
-          echo "${{ github.sha }}" > deployment/image_tag.txt
-          cp appspec.yml deployment/
-          cp -r scripts deployment/
-          cd deployment && zip -r ../deployment.zip .
+          echo "Preparing SSH key..."
+          echo "$PRIVATE_KEY" > private_key.pem
+          chmod 600 private_key.pem
+          
+          echo "Copying deployment script to EC2..."
+          scp -i private_key.pem -o StrictHostKeyChecking=no deploy.sh ${USER}@${HOST}:/home/ec2-user/
+          
+          echo "Executing deployment on EC2..."
+          ssh -i private_key.pem -o StrictHostKeyChecking=no ${USER}@${HOST} << EOF
+            cd /home/ec2-user
+            chmod +x deploy.sh
+            ./deploy.sh $IMAGE_TAG $ECR_REGISTRY
+          EOF
+          
+          echo "Cleaning up..."
+          rm -f private_key.pem
 
-      - name: Upload deployment to S3
+      - name: Deployment Summary
+        if: success()
         run: |
-          aws s3 cp deployment.zip s3://${{ env.S3_BUCKET }}/my-spring-app-${{ github.sha }}.zip
-
-      - name: Create appspec.yml in S3 root (for CodePipeline)
-        run: |
-          aws s3 cp deployment.zip s3://${{ env.S3_BUCKET }}/deployment.zip
-
-      - name: Trigger CodePipeline
-        run: |
-          echo "Deployment package uploaded. CodePipeline will detect changes automatically."
-          echo "Image: ${{ steps.build-image.outputs.image }}"
+          echo "### ✅ Recommendation System Deployed! 🚀" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Image:** \`${{ steps.build-image.outputs.image }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "**Host:** \`${{ secrets.EC2_HOST }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "**Access:** http://${{ secrets.EC2_HOST }}" >> $GITHUB_STEP_SUMMARY
